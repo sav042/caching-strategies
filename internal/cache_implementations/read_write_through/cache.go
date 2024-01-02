@@ -1,4 +1,4 @@
-package read_write_through_cache
+package read_write_through
 
 import (
 	"caching-strategies/internal/repository/entity/order"
