@@ -22,6 +22,6 @@ func (uc *Usecase) Get(ctx context.Context, IDs []uint64) ([]order.Order, error)
 	return uc.hotStorage.Get(ctx, IDs)
 }
 
-func (uc *Usecase) Add(ctx context.Context, order *order.Order) error {
+func (uc *Usecase) Save(ctx context.Context, order *order.Order) error {
 	return uc.hotStorage.Add(ctx, order)
 }

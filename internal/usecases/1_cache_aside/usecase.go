@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
 	"caching-strategies/internal/cache_implementations/cache_aside"
@@ -67,7 +68,7 @@ func (uc *Usecase) Get(ctx context.Context, IDs []uint64) ([]order.Order, error)
 		notInCache = append(notInCache, ID)
 	}
 
-	fmt.Printf("#{len(result} items from aside cache")
+	log.Debug().Msgf("get items from cache", "count", len(IDs))
 
 	// обновляем данные в кэше
 	if len(notInCache) > 0 {
@@ -88,7 +89,7 @@ func (uc *Usecase) Get(ctx context.Context, IDs []uint64) ([]order.Order, error)
 		}
 		_ = g.Wait()
 
-		fmt.Printf("#{len(ordersMap)} items from db")
+		log.Debug().Msgf("get from db", "count", len(ordersMap))
 	}
 
 	return result, nil
@@ -104,7 +105,7 @@ func (uc *Usecase) Save(ctx context.Context, order *order.Order) error {
 
 	_ = uc.cache.Add(orderID, order)
 
-	fmt.Printf("cache aside updated: #{*order}\n")
+	log.Debug().Msgf("cache updated: \n", "order", *order)
 
 	return nil
 }
