@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type Repo struct {
@@ -19,6 +20,9 @@ func (r *Repo) Get(ctx context.Context, IDs []uint64) (map[uint64]order.Order, e
 	ordersMap := make(map[uint64]order.Order, len(IDs))
 
 	for _, ID := range IDs {
+		// mock db latency
+		time.Sleep(1 * time.Millisecond)
+
 		value, ok := r.DB.Load(ID)
 		if !ok {
 			return nil, fmt.Errorf("db loading error")
@@ -34,6 +38,9 @@ func (r *Repo) Get(ctx context.Context, IDs []uint64) (map[uint64]order.Order, e
 }
 
 func (r *Repo) Save(ctx context.Context, order *order.Order) (uint64, error) {
+	// mock db latency
+	time.Sleep(1 * time.Millisecond)
+
 	r.DB.Store(order.ID, *order)
 	return order.ID, nil
 }
