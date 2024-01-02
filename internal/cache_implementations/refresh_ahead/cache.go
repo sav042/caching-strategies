@@ -5,9 +5,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"time"
 )
+
+const refreshFactor = 2
 
 type CacheInterface[K uint64, V *order.Order] interface {
 	Get(key K) (value *order.Order, ok bool)
@@ -22,20 +25,27 @@ type OrderRepoI interface {
 type RefreshAheadCache struct {
 	cache           CacheInterface[uint64, *order.Order]
 	orderRepository OrderRepoI
-	ttl             time.Duration
+	TTL             time.Duration
+	refreshCh       chan<- uint64
 }
 
-func New(cache CacheInterface[uint64, *order.Order], orderRepository OrderRepoI, ttl time.Duration) *RefreshAheadCache {
+func New(
+	cache CacheInterface[uint64, *order.Order],
+	orderRepository OrderRepoI,
+	ttl time.Duration,
+	refreshCh chan<- uint64,
+) *RefreshAheadCache {
 	return &RefreshAheadCache{
 		cache:           cache,
 		orderRepository: orderRepository,
-		ttl:             ttl,
+		TTL:             ttl,
+		refreshCh:       refreshCh,
 	}
 }
 
 func (c *RefreshAheadCache) Get(ctx context.Context, IDs []uint64) ([]order.Order, error) {
-	refreshCacheCh := make(chan uint64, len(IDs))
-	refreshCache := make([]uint64, 0, len(IDs))
+	notInCacheCh := make(chan uint64, len(IDs))
+	notInCache := make([]uint64, 0, len(IDs))
 
 	inCacheCh := make(chan order.Order, len(IDs))
 
@@ -47,10 +57,21 @@ func (c *RefreshAheadCache) Get(ctx context.Context, IDs []uint64) ([]order.Orde
 		ID := ID
 		g.Go(func() error {
 			value, ok := c.cache.Get(ID)
-			if !ok || value == nil || value.ExpiredAt.After(time.Now().Add(-c.ttl/2)) {
-				// нет в кэше или ttl скоро истекает - достаем из бд
-				refreshCacheCh <- ID
+			if !ok || value == nil {
+				// нет в кэше, будем искать в бд
+				notInCacheCh <- ID
+
 				return nil
+			}
+
+			// если ttl кэша уменьшился в refreshFactor раз - пишем в канал обновления
+			if value.ExpiredAt.Sub(time.Now()) <= c.TTL/refreshFactor {
+				// если канал полный - не пишем, чтобы не заблокироваться
+				if len(c.refreshCh) < cap(c.refreshCh) {
+					c.refreshCh <- ID
+				} else {
+					log.Warn().Msg("refreshCh is full")
+				}
 			}
 
 			// получили значение из кэша
@@ -62,7 +83,7 @@ func (c *RefreshAheadCache) Get(ctx context.Context, IDs []uint64) ([]order.Orde
 
 	// never returns err
 	_ = g.Wait()
-	close(refreshCacheCh)
+	close(notInCacheCh)
 	close(inCacheCh)
 
 	result := make([]order.Order, 0, len(IDs))
@@ -72,22 +93,21 @@ func (c *RefreshAheadCache) Get(ctx context.Context, IDs []uint64) ([]order.Orde
 	}
 
 	// prepare for DB request
-	for ID := range refreshCacheCh {
-		refreshCache = append(refreshCache, ID)
+	for ID := range notInCacheCh {
+		notInCache = append(notInCache, ID)
 	}
 
-	fmt.Printf("#{len(result} items from aside cache")
+	log.Debug().Msgf("get items from cache", "count", len(IDs))
 
 	// обновляем данные в кэше
-	if len(refreshCache) > 0 {
-		ordersMap, err := c.orderRepository.Get(ctx, refreshCache)
+	if len(notInCache) > 0 {
+		ordersMap, err := c.orderRepository.Get(ctx, notInCache)
 		if err != nil {
 			return nil, fmt.Errorf("err from repository: %s", err.Error())
 		}
 
 		for _, ord := range ordersMap {
 			ord := ord
-			ord.ExpiredAt = time.Now().Add(c.ttl)
 			result = append(result, ord)
 
 			g.Go(func() error {
@@ -98,7 +118,7 @@ func (c *RefreshAheadCache) Get(ctx context.Context, IDs []uint64) ([]order.Orde
 		}
 		_ = g.Wait()
 
-		fmt.Printf("#{len(ordersMap)} items from db")
+		log.Debug().Msgf("get from db", "count", len(ordersMap))
 	}
 
 	return result, nil
