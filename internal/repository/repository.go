@@ -41,6 +41,7 @@ func (r *Repo) Save(ctx context.Context, order *order.Order) (uint64, error) {
 	// mock db latency
 	time.Sleep(1 * time.Millisecond)
 
+	order.ExpiredAt = time.Now()
 	r.DB.Store(order.ID, *order)
 	return order.ID, nil
 }

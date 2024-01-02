@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -74,7 +75,7 @@ func (c *ReadWriteThroughCache) Get(ctx context.Context, IDs []uint64) ([]order.
 		notInCache = append(notInCache, ID)
 	}
 
-	fmt.Printf("#{len(result} items from aside cache")
+	log.Debug().Msgf("get items from cache", "count", len(IDs))
 
 	// обновляем данные в кэше
 	if len(notInCache) > 0 {
@@ -95,7 +96,7 @@ func (c *ReadWriteThroughCache) Get(ctx context.Context, IDs []uint64) ([]order.
 		}
 		_ = g.Wait()
 
-		fmt.Printf("#{len(ordersMap)} items from db")
+		log.Debug().Msgf("get from db", "count", len(ordersMap))
 	}
 
 	return result, nil
